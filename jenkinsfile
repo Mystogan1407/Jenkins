@@ -1,0 +1,77 @@
+pipeline {
+    // Define the node label that using to run ATS test suite
+    agent {
+        node {
+            label 'ATS_tnguyenhuu_176_6'
+        }
+    }
+    // Define Test suite location and log location
+    environment {
+        TESTLOC = '/home/tnguyenhuu/ats_repos/lib/perl/QATEST/DSC/ADQ_1670'
+        LOGLOC = '/home/tnguyenhuu/ats_user/logs/ADQ_1670'
+    }
+    stages {
+        stage('Run ATS Suite') {
+            steps{
+                sh label: 'ATS Execution', script: '''
+                    PERL5LIB=~/ats_repos/lib/perl:/ats/lib/perl
+                    export PERL5LIB
+                    export TERM=xterm
+                    export LOGDIR=${WORKSPACE}/ATS_logdir
+ 
+                    #Check if ATS_logdir is created or not. If not, create it
+                    if [ ! -d "$LOGDIR" ]
+                    then
+                        mkdir -p $LOGDIR
+                    fi
+ 
+                    # Clean any old results from WORKSPACE
+                    cd $LOGDIR
+                    ls -l
+                    count=`ls -1 *.xml 2>/dev/null | wc -l`
+                    if [ $count != 0 ]
+                    then
+                        echo "Remove old logs"
+                        rm -rf *
+                    else
+                        echo "The log are empty"
+                    fi
+                     
+ 
+                    # Cleanup log and temp test suite
+                    if [ -d ${LOGLOC} ]
+                    then
+                        cd ${LOGLOC}
+                        rm -rf *
+                    fi
+ 
+                    cd ${TESTLOC}
+                    ls -l
+ 
+                    ##### Execute Test suite #####
+                    /ats/bin/perl $HOME/ats_repos/lib/perl/SonusQA/startAutomation -junit -def *testbedDefinition.pl -test *testsuiteList.pl
+                    echo "================= DONE ===================="
+ 
+                    # Copy results to Jenkins workspace
+                    [ -d $LOGDIR ] || mkdir -p $LOGDIR
+                    [ -f ${LOGLOC}/Results_*jenkins.xml ] || {
+                            echo "ATS Results not found"
+                            exit -1
+                    }
+ 
+                    cp -rf ${LOGLOC}/*.* $LOGDIR
+                    cp -rf ${LOGLOC}/Results_*jenkins.xml $LOGDIR
+                '''.stripIndent()                  
+            }
+            post {
+                always {
+                    script {
+                        println " **** Archive Artifacts and publish Junit report **** "
+                        archiveArtifacts artifacts: 'ATS_logdir/*', allowEmptyArchive: true
+                        junit allowEmptyResults: true, testResults:'ATS_logdir/Results_*jenkins.xml'
+                    }
+                }
+            }
+        }
+    }
+}
